@@ -22,11 +22,11 @@ func NewStartCmd() *cobra.Command {
 			)
 			util := r.Group("/util")
 			{
-				util.GET("/mnemonic", func(ctx *gin.Context) {
-					handler.GetMnemonic(ctx)
+				util.POST("/mnemonic", func(ctx *gin.Context) {
+					handler.GenerateMnemonic(ctx)
 				})
-				util.POST("/hd-wallet-address", func(ctx *gin.Context) {
-					handler.GetHdWalletAddress(ctx)
+				util.POST("/hd-wallet", func(ctx *gin.Context) {
+					handler.GenerateHdWallet(ctx)
 				})
 			}
 			r.Run()
