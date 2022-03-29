@@ -58,7 +58,7 @@ func (h *handler) GenerateHdWallet(ctx *gin.Context) {
 		return
 	}
 
-	xPrvKey, xPubKey, rootKey, err := h.manager.GenerateHdWallet(json.Seed, json.Path)
+	extPrvKey, extPubKey, rootKey, wif, p2pkhAddress, segwitBech32, segwitNested, err := h.manager.GenerateHdWallet(json.Seed, json.Path)
 
 	if err != nil {
 		fmt.Println(err)
@@ -69,9 +69,13 @@ func (h *handler) GenerateHdWallet(ctx *gin.Context) {
 	}
 
 	ctx.JSON(200, gin.H{
-		"BIP32ExtendedPublicKey":  xPubKey,
-		"BIP32ExtendedPrivateKey": xPrvKey,
-		"BIP32RootKey":            rootKey,
+		"bip32ExtendedPublicKey":  extPrvKey,
+		"bip32ExtendedPrivateKey": extPubKey,
+		"bip32RootKey":            rootKey,
+		"WIF":                     wif,
+		"p2pkhAddress":            p2pkhAddress,
+		"segwitBech32":            segwitBech32,
+		"segwitNested":            segwitNested,
 	})
 
 }

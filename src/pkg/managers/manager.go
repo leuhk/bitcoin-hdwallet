@@ -6,13 +6,17 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcutil"
 	"github.com/tyler-smith/go-bip32"
 	"github.com/tyler-smith/go-bip39"
 )
 
 type Manager interface {
 	GenerateMnemonic(passPhrase string) (mnemonic string, seed string, err error)
-	GenerateHdWallet(seed string, path string) (xPrvKey string, xPubKey string, rootKey string, err error)
+	GenerateHdWallet(seed string, path string) (extPrvKey string, extPubKey string, rootKey string, wif string, p2pkhAddress string, segwitBech32 string, segwitNested string, err error)
 }
 
 type manager struct {
@@ -41,47 +45,73 @@ func (m *manager) GenerateMnemonic(passPhrase string) (mnemonic string, seed str
 	return mnemonic, seed, nil
 }
 
-func (m *manager) GenerateHdWallet(seed string, path string) (xPrvKey string, xPubKey string, rootKey string, err error) {
+func (m *manager) GenerateHdWallet(seed string, path string) (extPrvKey string, extPubKey string, rootKey string, wif string, p2pkhAddress string, segwitBech32 string, segwitNested string, err error) {
 	decodeSeed, err := hex.DecodeString(seed)
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", "", "", "", "", err
 	}
 	master, err := bip32.NewMasterKey(decodeSeed)
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", "", "", "", "", err
 	}
+	rootKey = master.String()
 
 	params, err := deriveParamsFromPath(path)
 	if err != nil {
-		return "", "", "", err
-	}
-	child, err := master.NewChildKey(params.Purpose)
-	if err != nil {
-		return "", "", "", err
-	}
-	child, err = child.NewChildKey(params.CoinType)
-	if err != nil {
-		return "", "", "", err
+		return "", "", "", "", "", "", "", err
 	}
 
-	child, err = child.NewChildKey(params.Account)
+	xPrvKey, xPubKey, err := getExtendedKeys(master, params)
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", "", "", "", "", err
+	}
+	extPrvKey, extPubKey = xPrvKey.String(), xPubKey.PublicKey().String()
+
+	prvKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), xPrvKey.Key)
+
+	wif, p2pkhAddress, segwitBech32, segwitNested, err = getAddress(prvKey)
+	if err != nil {
+		return "", "", "", "", "", "", "", err
 	}
 
-	child, err = child.NewChildKey(params.Change)
+	return extPrvKey, extPubKey, rootKey, wif, p2pkhAddress, segwitBech32, segwitNested, nil
+}
+
+func getAddress(prvKey *btcec.PrivateKey) (wif string, p2pkhAddress string, segwitBech32 string, segwitNested string, err error) {
+	// generate the wif(wallet import format) string
+	btcwif, err := btcutil.NewWIF(prvKey, &chaincfg.MainNetParams, true)
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", "", err
 	}
-	child, err = child.NewChildKey(params.AddressIndex)
+	wif = btcwif.String()
+
+	// generate a normal p2pkh address
+	serializedPubKey := btcwif.SerializePubKey()
+	addressPubKey, err := btcutil.NewAddressPubKey(serializedPubKey, &chaincfg.MainNetParams)
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", "", err
 	}
+	p2pkhAddress = addressPubKey.EncodeAddress()
 
-	xPrvKey, xPubKey, rootKey = child.String(), child.PublicKey().String(), master.String()
+	// generate a normal p2wkh address from the pubkey hash
+	witnessProg := btcutil.Hash160(serializedPubKey)
+	addressWitnessPubKeyHash, err := btcutil.NewAddressWitnessPubKeyHash(witnessProg, &chaincfg.MainNetParams)
+	if err != nil {
+		return "", "", "", "", err
+	}
+	segwitBech32 = addressWitnessPubKeyHash.EncodeAddress()
 
-	return xPrvKey, xPubKey, rootKey, nil
+	serializedScript, err := txscript.PayToAddrScript(addressWitnessPubKeyHash)
+	if err != nil {
+		return "", "", "", "", err
+	}
+	addressScriptHash, err := btcutil.NewAddressScriptHash(serializedScript, &chaincfg.MainNetParams)
+	if err != nil {
+		return "", "", "", "", err
+	}
+	segwitNested = addressScriptHash.EncodeAddress()
 
+	return wif, p2pkhAddress, segwitBech32, segwitNested, nil
 }
 
 func deriveParamsFromPath(path string) (*BIP44Params, error) {
@@ -171,6 +201,32 @@ func hardenedInt(field string) (uint32, error) {
 
 func isHardened(field string) bool {
 	return strings.HasSuffix(field, "'")
+}
+
+func getExtendedKeys(master *bip32.Key, params *BIP44Params) (xPrvKey *bip32.Key, xPubKey *bip32.Key, err error) {
+	child, err := master.NewChildKey(params.Purpose)
+	if err != nil {
+		return nil, nil, err
+	}
+	child, err = child.NewChildKey(params.CoinType)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	child, err = child.NewChildKey(params.Account)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	child, err = child.NewChildKey(params.Change)
+	if err != nil {
+		return nil, nil, err
+	}
+	child, err = child.NewChildKey(params.AddressIndex)
+	if err != nil {
+		return nil, nil, err
+	}
+	return child, child.PublicKey(), nil
 }
 
 func NewManager() Manager {
