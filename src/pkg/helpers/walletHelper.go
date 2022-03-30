@@ -1,7 +1,6 @@
-package managers
+package helpers
 
 import (
-	"encoding/hex"
 	"fmt"
 	"strconv"
 	"strings"
@@ -11,16 +10,19 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcutil"
 	"github.com/tyler-smith/go-bip32"
-	"github.com/tyler-smith/go-bip39"
 )
 
-type Manager interface {
-	GenerateMnemonic(passPhrase string) (mnemonic string, seed string, err error)
-	GenerateHdWallet(seed string, path string) (extPrvKey string, extPubKey string, rootKey string, wif string, p2pkhAddress string, segwitBech32 string, segwitNested string, err error)
-	GenerateMultisignature(n int8, m int8, wif []string) (hash string, err error)
+type WalletHelper interface {
+	DeriveParamsFromPath(path string) (*BIP44Params, error)
+	DeriveExtendedKeys(master *bip32.Key, params *BIP44Params) (xPrvKey *bip32.Key, xPubKey *bip32.Key, err error)
+	DerivePrivateKeyFromBytes(key []byte) *btcec.PrivateKey
+	DeriveAddress(prvKey *btcec.PrivateKey) (wif string, p2pkhAddress string, segwitBech32 string, segwitNested string, err error)
+	DerivePubKeyFromWif(wif []string) ([]*btcec.PublicKey, error)
+	DeriveOpcodes(n int8) (byte, error)
+	GenerateMultisignatureRedeemHash(n byte, m byte, publicKeys []*btcec.PublicKey) (string, error)
 }
 
-type manager struct {
+type walletHelper struct {
 }
 
 type BIP44Params struct {
@@ -31,39 +33,18 @@ type BIP44Params struct {
 	AddressIndex uint32 `json:"addressIndex"`
 }
 
-const bitSize = 256
-
-func (mgr *manager) GenerateMultisignature(n int8, m int8, wif []string) (hash string, err error) {
-	var publicKeys []*btcec.PublicKey
-
-	for i, _ := range wif {
-		wif1, err := btcutil.DecodeWIF(wif[i])
-		if err != nil {
-			return "", err
-		}
-		// public key extracted from wif.PrivKey
-		pk := wif1.PrivKey.PubKey()
-		publicKeys = append(publicKeys, pk)
-	}
-
+func (wh *walletHelper) GenerateMultisignatureRedeemHash(n byte, m byte, publicKeys []*btcec.PublicKey) (string, error) {
 	// create redeem script for 2 of 3 multi-sig
 	builder := txscript.NewScriptBuilder()
-	minSignature, err := getSignaturesMapping(m)
-	if err != nil {
-		return "", err
-	}
-	numOfPubKeys, err := getSignaturesMapping(n)
-	if err != nil {
-		return "", err
-	}
+
 	// add the minimum number of needed signatures
-	builder.AddOp(minSignature)
+	builder.AddOp(m)
 	// add the 3 public key
-	for idx, _ := range publicKeys {
-		builder = builder.AddData(publicKeys[idx].SerializeCompressed())
+	for i, _ := range publicKeys {
+		builder = builder.AddData(publicKeys[i].SerializeCompressed())
 	}
 	// add the total number of public keys in the multi-sig screipt
-	builder.AddOp(numOfPubKeys)
+	builder.AddOp(n)
 
 	// add the check-multi-sig op-code
 	builder.AddOp(txscript.OP_CHECKMULTISIG)
@@ -79,11 +60,9 @@ func (mgr *manager) GenerateMultisignature(n int8, m int8, wif []string) (hash s
 	if err != nil {
 		return "", err
 	}
-
 	return addr.EncodeAddress(), nil
 }
-
-func getSignaturesMapping(i int8) (byte, error) {
+func (wh *walletHelper) DeriveOpcodes(i int8) (byte, error) {
 	switch i {
 	case 1:
 		return txscript.OP_1, nil
@@ -120,54 +99,22 @@ func getSignaturesMapping(i int8) (byte, error) {
 	default:
 		return 0, fmt.Errorf("N & M size must be equal or less then 16. got:%d", i)
 	}
-
-}
-func (mgr *manager) GenerateMnemonic(passPhrase string) (mnemonic string, seed string, err error) {
-	entropy, err := bip39.NewEntropy(bitSize)
-	if err != nil {
-		return "", "", err
-	}
-	mnemonic, err = bip39.NewMnemonic(entropy)
-	if err != nil {
-		return "", "", err
-	}
-	seed = hex.EncodeToString(bip39.NewSeed(mnemonic, passPhrase))
-	return mnemonic, seed, nil
 }
 
-func (mgr *manager) GenerateHdWallet(seed string, path string) (extPrvKey string, extPubKey string, rootKey string, wif string, p2pkhAddress string, segwitBech32 string, segwitNested string, err error) {
-	decodeSeed, err := hex.DecodeString(seed)
-	if err != nil {
-		return "", "", "", "", "", "", "", err
+func (wh *walletHelper) DerivePubKeyFromWif(wif []string) (publicKeys []*btcec.PublicKey, err error) {
+	for i, _ := range wif {
+		wif1, err := btcutil.DecodeWIF(wif[i])
+		if err != nil {
+			return nil, err
+		}
+		// public key extracted from wif.PrivKey
+		pk := wif1.PrivKey.PubKey()
+		publicKeys = append(publicKeys, pk)
 	}
-	master, err := bip32.NewMasterKey(decodeSeed)
-	if err != nil {
-		return "", "", "", "", "", "", "", err
-	}
-	rootKey = master.String()
-
-	params, err := deriveParamsFromPath(path)
-	if err != nil {
-		return "", "", "", "", "", "", "", err
-	}
-
-	xPrvKey, xPubKey, err := getExtendedKeys(master, params)
-	if err != nil {
-		return "", "", "", "", "", "", "", err
-	}
-	extPrvKey, extPubKey = xPrvKey.String(), xPubKey.PublicKey().String()
-
-	prvKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), xPrvKey.Key)
-
-	wif, p2pkhAddress, segwitBech32, segwitNested, err = getAddress(prvKey)
-	if err != nil {
-		return "", "", "", "", "", "", "", err
-	}
-
-	return extPrvKey, extPubKey, rootKey, wif, p2pkhAddress, segwitBech32, segwitNested, nil
+	return publicKeys, nil
 }
 
-func getAddress(prvKey *btcec.PrivateKey) (wif string, p2pkhAddress string, segwitBech32 string, segwitNested string, err error) {
+func (wh *walletHelper) DeriveAddress(prvKey *btcec.PrivateKey) (wif string, p2pkhAddress string, segwitBech32 string, segwitNested string, err error) {
 	// generate the wif(wallet import format) string
 	btcwif, err := btcutil.NewWIF(prvKey, &chaincfg.MainNetParams, true)
 	if err != nil {
@@ -204,7 +151,11 @@ func getAddress(prvKey *btcec.PrivateKey) (wif string, p2pkhAddress string, segw
 	return wif, p2pkhAddress, segwitBech32, segwitNested, nil
 }
 
-func deriveParamsFromPath(path string) (*BIP44Params, error) {
+func (wh *walletHelper) DerivePrivateKeyFromBytes(key []byte) *btcec.PrivateKey {
+	privateKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), key)
+	return privateKey
+}
+func (wh *walletHelper) DeriveParamsFromPath(path string) (*BIP44Params, error) {
 	// Split path into params
 	spl := strings.Split(path, "/")
 
@@ -268,32 +219,8 @@ func deriveParamsFromPath(path string) (*BIP44Params, error) {
 		Change:       change,
 		AddressIndex: addressIdx,
 	}, nil
-
 }
-
-func hardenedInt(field string) (uint32, error) {
-	hasSuffix := strings.HasSuffix(field, "'")
-	field = strings.TrimSuffix(field, "'")
-	i, err := strconv.Atoi(field)
-
-	if err != nil {
-		return 0, err
-	}
-	if i < 0 {
-		return 0, fmt.Errorf("fields must not be negative. got %d", i)
-	}
-	if hasSuffix {
-		hardenedInt := bip32.FirstHardenedChild + uint32(i)
-		return hardenedInt, nil
-	}
-	return uint32(i), nil
-}
-
-func isHardened(field string) bool {
-	return strings.HasSuffix(field, "'")
-}
-
-func getExtendedKeys(master *bip32.Key, params *BIP44Params) (xPrvKey *bip32.Key, xPubKey *bip32.Key, err error) {
+func (wh *walletHelper) DeriveExtendedKeys(master *bip32.Key, params *BIP44Params) (xPrvKey *bip32.Key, xPubKey *bip32.Key, err error) {
 	child, err := master.NewChildKey(params.Purpose)
 	if err != nil {
 		return nil, nil, err
@@ -318,7 +245,26 @@ func getExtendedKeys(master *bip32.Key, params *BIP44Params) (xPrvKey *bip32.Key
 	}
 	return child, child.PublicKey(), nil
 }
+func isHardened(field string) bool {
+	return strings.HasSuffix(field, "'")
+}
+func hardenedInt(field string) (uint32, error) {
+	hasSuffix := strings.HasSuffix(field, "'")
+	field = strings.TrimSuffix(field, "'")
+	i, err := strconv.Atoi(field)
 
-func NewManager() Manager {
-	return &manager{}
+	if err != nil {
+		return 0, err
+	}
+	if i < 0 {
+		return 0, fmt.Errorf("fields must not be negative. got %d", i)
+	}
+	if hasSuffix {
+		hardenedInt := bip32.FirstHardenedChild + uint32(i)
+		return hardenedInt, nil
+	}
+	return uint32(i), nil
+}
+func NewWalletHelper() WalletHelper {
+	return &walletHelper{}
 }

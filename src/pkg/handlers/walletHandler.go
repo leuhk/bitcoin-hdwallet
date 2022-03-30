@@ -7,14 +7,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type Handler interface {
+type WalletHandler interface {
 	GenerateMnemonic(ctx *gin.Context)
 	GenerateHdWallet(ctx *gin.Context)
 	GenerateMultisignature(ctx *gin.Context)
 }
 
-type handler struct {
-	manager managers.Manager
+type walletHandler struct {
+	walletManager managers.WalletManager
 }
 
 type HdWallet struct {
@@ -32,7 +32,7 @@ type Multisignature struct {
 	Wif []string `form:"wif" json:"wif" binding:"required"`
 }
 
-func (h *handler) GenerateMultisignature(ctx *gin.Context) {
+func (wh *walletHandler) GenerateMultisignature(ctx *gin.Context) {
 	var json Multisignature
 
 	if err := ctx.ShouldBindJSON(&json); err != nil {
@@ -40,7 +40,7 @@ func (h *handler) GenerateMultisignature(ctx *gin.Context) {
 		ctx.JSON(422, gin.H{"error": "Unprocessable Entity"})
 		return
 	}
-	address, err := h.manager.GenerateMultisignature(json.N, json.M, json.Wif)
+	address, err := wh.walletManager.GenerateMultisignature(json.N, json.M, json.Wif)
 	if err != nil {
 		fmt.Println(err)
 		ctx.JSON(404, gin.H{
@@ -54,7 +54,7 @@ func (h *handler) GenerateMultisignature(ctx *gin.Context) {
 	})
 
 }
-func (h *handler) GenerateMnemonic(ctx *gin.Context) {
+func (wh *walletHandler) GenerateMnemonic(ctx *gin.Context) {
 	var json Mnemonic
 
 	if err := ctx.ShouldBindJSON(&json); err != nil {
@@ -62,7 +62,7 @@ func (h *handler) GenerateMnemonic(ctx *gin.Context) {
 		ctx.JSON(422, gin.H{"error": "Unprocessable Entity"})
 		return
 	}
-	mnemonic, seed, err := h.manager.GenerateMnemonic(json.Passphrase)
+	mnemonic, seed, err := wh.walletManager.GenerateMnemonic(json.Passphrase)
 
 	if err != nil {
 		fmt.Println(err)
@@ -78,7 +78,7 @@ func (h *handler) GenerateMnemonic(ctx *gin.Context) {
 	})
 }
 
-func (h *handler) GenerateHdWallet(ctx *gin.Context) {
+func (wh *walletHandler) GenerateHdWallet(ctx *gin.Context) {
 	var json HdWallet
 
 	if err := ctx.ShouldBindJSON(&json); err != nil {
@@ -87,7 +87,7 @@ func (h *handler) GenerateHdWallet(ctx *gin.Context) {
 		return
 	}
 
-	extPrvKey, extPubKey, rootKey, wif, p2pkhAddress, segwitBech32, segwitNested, err := h.manager.GenerateHdWallet(json.Seed, json.Path)
+	extPrvKey, extPubKey, rootKey, wif, p2pkhAddress, segwitBech32, segwitNested, err := wh.walletManager.GenerateHdWallet(json.Seed, json.Path)
 
 	if err != nil {
 		fmt.Println(err)
@@ -108,8 +108,8 @@ func (h *handler) GenerateHdWallet(ctx *gin.Context) {
 	})
 }
 
-func NewHandler(manager managers.Manager) Handler {
-	return &handler{
-		manager,
+func NewWalletHandler(walletManager managers.WalletManager) WalletHandler {
+	return &walletHandler{
+		walletManager,
 	}
 }
