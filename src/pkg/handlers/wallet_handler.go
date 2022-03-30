@@ -22,10 +22,6 @@ type HdWallet struct {
 	Seed string `form:"seed" json:"seed" binding:"required"`
 }
 
-type Mnemonic struct {
-	Passphrase string `form:"passphrase" json:"passphrase"`
-}
-
 type Multisignature struct {
 	N   int8     `form:"n" json:"n" binding:"required"`
 	M   int8     `form:"m" json:"m" binding:"required"`
@@ -55,14 +51,8 @@ func (wh *walletHandler) GenerateMultisignature(ctx *gin.Context) {
 
 }
 func (wh *walletHandler) GenerateMnemonic(ctx *gin.Context) {
-	var json Mnemonic
-
-	if err := ctx.ShouldBindJSON(&json); err != nil {
-		fmt.Println(err)
-		ctx.JSON(422, gin.H{"error": "Unprocessable Entity"})
-		return
-	}
-	mnemonic, seed, err := wh.walletManager.GenerateMnemonic(json.Passphrase)
+	var passphrase string = ""
+	mnemonic, seed, err := wh.walletManager.GenerateMnemonic(passphrase)
 
 	if err != nil {
 		fmt.Println(err)
@@ -98,8 +88,8 @@ func (wh *walletHandler) GenerateHdWallet(ctx *gin.Context) {
 	}
 
 	ctx.JSON(200, gin.H{
-		"bip32ExtendedPublicKey":  extPrvKey,
-		"bip32ExtendedPrivateKey": extPubKey,
+		"bip32ExtendedPublicKey":  extPubKey,
+		"bip32ExtendedPrivateKey": extPrvKey,
 		"bip32RootKey":            rootKey,
 		"WIF":                     wif,
 		"p2pkhAddress":            p2pkhAddress,

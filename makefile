@@ -13,7 +13,9 @@ dep:
 clean:
 	go mod tidy
 	go clean
-
-lint:
-	golangci-lint run --enable-all
 	
+coverage:
+	go test -cover ./src/pkg... 
+
+test:
+	go test -v ./src/pkg... 
