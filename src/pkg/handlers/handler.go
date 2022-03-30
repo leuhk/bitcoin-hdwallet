@@ -10,6 +10,7 @@ import (
 type Handler interface {
 	GenerateMnemonic(ctx *gin.Context)
 	GenerateHdWallet(ctx *gin.Context)
+	GenerateMultisignature(ctx *gin.Context)
 }
 
 type handler struct {
@@ -25,6 +26,34 @@ type Mnemonic struct {
 	Passphrase string `form:"passphrase" json:"passphrase"`
 }
 
+type Multisignature struct {
+	N   int8     `form:"n" json:"n" binding:"required"`
+	M   int8     `form:"m" json:"m" binding:"required"`
+	Wif []string `form:"wif" json:"wif" binding:"required"`
+}
+
+func (h *handler) GenerateMultisignature(ctx *gin.Context) {
+	var json Multisignature
+
+	if err := ctx.ShouldBindJSON(&json); err != nil {
+		fmt.Println(err)
+		ctx.JSON(422, gin.H{"error": "Unprocessable Entity"})
+		return
+	}
+	address, err := h.manager.GenerateMultisignature(json.N, json.M, json.Wif)
+	if err != nil {
+		fmt.Println(err)
+		ctx.JSON(404, gin.H{
+			"error": "Unable to generate address",
+		})
+		return
+	}
+
+	ctx.JSON(200, gin.H{
+		"address": address,
+	})
+
+}
 func (h *handler) GenerateMnemonic(ctx *gin.Context) {
 	var json Mnemonic
 
@@ -77,7 +106,6 @@ func (h *handler) GenerateHdWallet(ctx *gin.Context) {
 		"segwitBech32":            segwitBech32,
 		"segwitNested":            segwitNested,
 	})
-
 }
 
 func NewHandler(manager managers.Manager) Handler {

@@ -17,6 +17,7 @@ import (
 type Manager interface {
 	GenerateMnemonic(passPhrase string) (mnemonic string, seed string, err error)
 	GenerateHdWallet(seed string, path string) (extPrvKey string, extPubKey string, rootKey string, wif string, p2pkhAddress string, segwitBech32 string, segwitNested string, err error)
+	GenerateMultisignature(n int8, m int8, wif []string) (hash string, err error)
 }
 
 type manager struct {
@@ -32,7 +33,96 @@ type BIP44Params struct {
 
 const bitSize = 256
 
-func (m *manager) GenerateMnemonic(passPhrase string) (mnemonic string, seed string, err error) {
+func (mgr *manager) GenerateMultisignature(n int8, m int8, wif []string) (hash string, err error) {
+	var publicKeys []*btcec.PublicKey
+
+	for i, _ := range wif {
+		wif1, err := btcutil.DecodeWIF(wif[i])
+		if err != nil {
+			return "", err
+		}
+		// public key extracted from wif.PrivKey
+		pk := wif1.PrivKey.PubKey()
+		publicKeys = append(publicKeys, pk)
+	}
+
+	// create redeem script for 2 of 3 multi-sig
+	builder := txscript.NewScriptBuilder()
+	minSignature, err := getSignaturesMapping(m)
+	if err != nil {
+		return "", err
+	}
+	numOfPubKeys, err := getSignaturesMapping(n)
+	if err != nil {
+		return "", err
+	}
+	// add the minimum number of needed signatures
+	builder.AddOp(minSignature)
+	// add the 3 public key
+	for idx, _ := range publicKeys {
+		builder = builder.AddData(publicKeys[idx].SerializeCompressed())
+	}
+	// add the total number of public keys in the multi-sig screipt
+	builder.AddOp(numOfPubKeys)
+
+	// add the check-multi-sig op-code
+	builder.AddOp(txscript.OP_CHECKMULTISIG)
+
+	redeemScript, err := builder.Script()
+	if err != nil {
+		return "", err
+	}
+	// calculate the hash160 of the redeem script
+	redeemHash := btcutil.Hash160(redeemScript)
+
+	addr, err := btcutil.NewAddressScriptHashFromHash(redeemHash, &chaincfg.MainNetParams)
+	if err != nil {
+		return "", err
+	}
+
+	return addr.EncodeAddress(), nil
+}
+
+func getSignaturesMapping(i int8) (byte, error) {
+	switch i {
+	case 1:
+		return txscript.OP_1, nil
+	case 2:
+		return txscript.OP_2, nil
+	case 3:
+		return txscript.OP_3, nil
+	case 4:
+		return txscript.OP_4, nil
+	case 5:
+		return txscript.OP_5, nil
+	case 6:
+		return txscript.OP_6, nil
+	case 7:
+		return txscript.OP_7, nil
+	case 8:
+		return txscript.OP_8, nil
+	case 9:
+		return txscript.OP_9, nil
+	case 10:
+		return txscript.OP_10, nil
+	case 11:
+		return txscript.OP_11, nil
+	case 12:
+		return txscript.OP_12, nil
+	case 13:
+		return txscript.OP_13, nil
+	case 14:
+		return txscript.OP_14, nil
+	case 15:
+		return txscript.OP_15, nil
+	case 16:
+		return txscript.OP_16, nil
+	default:
+		return 0, fmt.Errorf("N & M size must be equal or less then 16. got:%d", i)
+	}
+
+}
+func (mgr *manager) GenerateMnemonic(passPhrase string) (mnemonic string, seed string, err error) {
 	entropy, err := bip39.NewEntropy(bitSize)
 	if err != nil {
 		return "", "", err
@@ -45,7 +135,7 @@ func (m *manager) GenerateMnemonic(passPhrase string) (mnemonic string, seed str
 	return mnemonic, seed, nil
 }
 
-func (m *manager) GenerateHdWallet(seed string, path string) (extPrvKey string, extPubKey string, rootKey string, wif string, p2pkhAddress string, segwitBech32 string, segwitNested string, err error) {
+func (mgr *manager) GenerateHdWallet(seed string, path string) (extPrvKey string, extPubKey string, rootKey string, wif string, p2pkhAddress string, segwitBech32 string, segwitNested string, err error) {
 	decodeSeed, err := hex.DecodeString(seed)
 	if err != nil {
 		return "", "", "", "", "", "", "", err
@@ -153,9 +243,9 @@ func deriveParamsFromPath(path string) (*BIP44Params, error) {
 	}
 
 	// Validate path values
-	if spl[1] != "44'" {
-		return nil, fmt.Errorf("first field in path must be 44', got %s", spl[0])
-	}
+	// if spl[1] != "44'" {
+	// 	return nil, fmt.Errorf("first field in path must be 44', got %s", spl[0])
+	// }
 
 	if !isHardened(spl[2]) || !isHardened(spl[3]) {
 		return nil,

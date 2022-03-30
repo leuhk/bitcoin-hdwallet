@@ -28,6 +28,9 @@ func NewStartCmd() *cobra.Command {
 				util.POST("/hd-wallet", func(ctx *gin.Context) {
 					handler.GenerateHdWallet(ctx)
 				})
+				util.POST("multi-sig/p2sh", func(ctx *gin.Context) {
+					handler.GenerateMultisignature(ctx)
+				})
 			}
 			r.Run()
 			return nil
