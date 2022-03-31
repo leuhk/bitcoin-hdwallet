@@ -14,7 +14,6 @@ func NewStartCmd() *cobra.Command {
 		Short: "start Rest server",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			r := gin.Default()
-
 			r.Use(gin.Recovery())
 
 			var (
