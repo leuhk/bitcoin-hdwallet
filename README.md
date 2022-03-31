@@ -116,4 +116,9 @@ for a good security practice, HD wallet should generate a seed phrase with lengt
 
 In an ideal production grade application, the seed should use some sort of encryption standard before sending to both client side and server side. This will avoid man-in-the-middle attacks sniffing Https Request.
 The database should also not store seed in a raw format.
-    
+
+## Third Party libraries
+ - github.com/tyler-smith/go-bip32
+ - github.com/tyler-smith/go-bip39
+ - github.com/btcsuite/btcutil
+ - github.com/btcsuite/btcd
