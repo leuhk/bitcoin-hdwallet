@@ -23,7 +23,7 @@ func NewStartCmd() *cobra.Command {
 			)
 			util := r.Group("/util")
 			{
-				util.POST("/mnemonic", func(ctx *gin.Context) {
+				util.GET("/new-mnemonic", func(ctx *gin.Context) {
 					walletHandler.GenerateMnemonic(ctx)
 				})
 				util.POST("/hd-wallet", func(ctx *gin.Context) {
